@@ -4465,6 +4465,10 @@ fn impl_new<'a>(vmm_lib_path : &str, h_vmm_existing_opt : usize, args: &Vec<&str
         let h;
         if h_vmm_existing_opt != 0 {
             h = h_vmm_existing_opt;
+            let r = (VMMDLL_InitializePlugins)(h_vmm_existing_opt);
+            if !r {
+                return Err(anyhow!("VMMDLL_InitializePlugins: fail"));
+            }
         } else {
             let args = args.iter().map(|arg| CString::new(*arg).unwrap()).collect::<Vec<CString>>();
             let argv: Vec<*const c_char> = args.iter().map(|s| s.as_ptr()).collect();
