@@ -506,10 +506,10 @@ impl Vmm<'_> {
     /// };
     /// ```
     pub fn new<'a>(vmm_lib_path : &str, args: &Vec<&str>) -> ResultEx<Vmm<'a>> {
-        return crate::impl_new(vmm_lib_path, 0, args);
+        return crate::impl_new(vmm_lib_path, 0, args, true);
     }
     pub fn new_with_exist<'a>(vmm_lib_path : &str, h_vmm_existing_opt:usize) -> ResultEx<Vmm<'a>> {
-        return crate::impl_new(vmm_lib_path, h_vmm_existing_opt, &vec![]);
+        return crate::impl_new(vmm_lib_path, h_vmm_existing_opt, &vec![], false);
     }
     /// Initialize MemProcFS from a host VMM and a child VM.
     /// 
@@ -4380,22 +4380,34 @@ struct VmmNative {
 }
 
 #[allow(non_snake_case)]
-fn impl_new<'a>(vmm_lib_path : &str, h_vmm_existing_opt : usize, args: &Vec<&str>) -> ResultEx<Vmm<'a>> {
+fn impl_new<'a>(vmm_lib_path : &str, h_vmm_existing_opt : usize, args: &Vec<&str>,join_path:bool) -> ResultEx<Vmm<'a>> {
     unsafe {
         // load MemProcFS native library (vmm.dll / vmm.so):
         // vmm is however dependant on leechcore which must be loaded first...
-        let path_vmm = std::path::Path::new(vmm_lib_path).canonicalize()?;
-        let mut path_lc = path_vmm.parent().unwrap().canonicalize()?;
-        if cfg!(windows) {
-            path_lc = path_lc.join("leechcore.dll");
+        let str_path_lc ;
+        let str_path_vmm;
+        if join_path {
+            let path_vmm = std::path::Path::new(vmm_lib_path).canonicalize()?;
+            let mut path_lc = path_vmm.parent().unwrap().canonicalize()?;
+            if cfg!(windows) {
+                path_lc = path_lc.join("leechcore.dll");
+            } else {
+                path_lc = path_lc.join("leechcore.so");
+            }
+            str_path_lc = path_lc.to_str().unwrap_or("").to_string();
+            str_path_vmm = path_vmm.to_str().unwrap_or("").to_string();
         } else {
-            path_lc = path_lc.join("leechcore.so");
+            str_path_lc = if cfg!(windows) {
+               "leechcore.dll".to_string()
+            } else {
+               "leechcore.so".to_string()
+            };
+            str_path_vmm = vmm_lib_path.to_string();
         }
-        let str_path_lc = path_lc.to_str().unwrap_or("");
-        let str_path_vmm = path_vmm.to_str().unwrap_or("");
-        let lib_lc : libloading::Library = libloading::Library::new(str_path_lc)
+
+        let lib_lc : libloading::Library = libloading::Library::new(&str_path_lc)
             .with_context(|| format!("Failed to load leechcore library at: {}", str_path_lc))?;
-        let lib : libloading::Library = libloading::Library::new(str_path_vmm)
+        let lib : libloading::Library = libloading::Library::new(&str_path_vmm)
             .with_context(|| format!("Failed to load vmm library at: {}", str_path_vmm))?;
         // fetch function references:
         let VMMDLL_Initialize : extern "C" fn(argc: c_int, argv: *const *const c_char) -> usize = *lib.get(b"VMMDLL_Initialize")?;
@@ -7993,7 +8005,8 @@ impl<T> VmmPluginInitializationContext<T> {
             let pathname_len = std::cmp::min(pathname_bytes.len(), (*reginfo).reg_info_uszPathName.len());
             // "initialize" rust vmm context from handle and create rust plugin native context:
             let c_path_vmm = CStr::from_ptr((*reginfo).uszPathVmmDLL);
-            let vmm = impl_new(c_path_vmm.to_str()?, self.h_vmm, &Vec::new())?;
+            //todo! check
+            let vmm = impl_new(c_path_vmm.to_str()?, self.h_vmm, &Vec::new(),false)?;
             let ctx_user = self.ctx.unwrap();
             let ctx_rust = VmmPluginContext {
                 vmm : vmm,
